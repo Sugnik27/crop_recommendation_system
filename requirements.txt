@@ -3,4 +3,5 @@ pandas
 scikit-learn
 xgboost
 joblib
-streamlit
+streamlit==1.19.0
+altair<5
