@@ -1,14 +1,14 @@
 """
 Streamlit app for Crop Recommendation System.
 
-Note:
-- To avoid import issues when Streamlit runs the script,
-  the project root is added to sys.path at runtime.
+- Inference-only app (no dataset dependency)
+- Uses trained model + feature_columns.json
+- Cloud-safe & production-ready
 """
 
-
-# Make project root importable (IMPORTANT for Streamlit)
-
+# -------------------------------------------------
+# Make project root importable (IMPORTANT)
+# -------------------------------------------------
 
 import sys
 from pathlib import Path
@@ -18,61 +18,61 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 
+# -------------------------------------------------
 # Imports
+# -------------------------------------------------
 
-
-from typing import Any, Dict
+from typing import Dict, Any
 import pandas as pd
 import streamlit as st
 
-from src.config import CLEANED_DATA_PATH
-from src.deployment import predict_single, predict_batch, get_feature_columns
-from src.preprocessing import load_data
+from src.deployment import predict_single, predict_batch
 
 
-# Cache data loading (for UI defaults)
+# -------------------------------------------------
+# Fixed feature schema (MODEL INPUTS)
+# -------------------------------------------------
+
+FEATURE_COLUMNS = [
+    "N",
+    "P",
+    "K",
+    "temperature",
+    "humidity",
+    "ph",
+    "rainfall",
+]
 
 
-@st.cache_data
-def load_sample_data() -> pd.DataFrame:
-    df = load_data(CLEANED_DATA_PATH)
-    return df
+# -------------------------------------------------
+# Input form
+# -------------------------------------------------
 
-
-
-# Build input form dynamically
-
-
-def build_input_form(df_sample: pd.DataFrame) -> Dict[str, Any]:
+def build_input_form() -> Dict[str, Any]:
     st.subheader("🌾 Enter Soil & Environmental Parameters")
 
-    model = load_data()
-    feature_cols = get_feature_columns(model)
-
-    input_data: Dict[str, Any] = {}
-
-    for col in feature_cols:
-        series = df_sample[col]
-
-        default = float(series.median()) if not series.isna().all() else 0.0
-
-        input_data[col] = st.number_input(
-            label=col,
-            value=default
-        )
+    input_data = {
+        "N": st.number_input("Nitrogen (N)", min_value=0.0, value=50.0),
+        "P": st.number_input("Phosphorus (P)", min_value=0.0, value=40.0),
+        "K": st.number_input("Potassium (K)", min_value=0.0, value=40.0),
+        "temperature": st.number_input("Temperature (°C)", value=25.0),
+        "humidity": st.number_input("Humidity (%)", value=70.0),
+        "ph": st.number_input("pH", value=6.5),
+        "rainfall": st.number_input("Rainfall (mm)", value=100.0),
+    }
 
     return input_data
 
 
-
+# -------------------------------------------------
 # Main app
-
+# -------------------------------------------------
 
 def main() -> None:
     st.set_page_config(
         page_title="Crop Recommendation System",
         page_icon="🌱",
-        layout="centered"
+        layout="centered",
     )
 
     st.title("🌱 Crop Recommendation System")
@@ -82,29 +82,23 @@ def main() -> None:
         This application recommends the **most suitable crop** based on  
         **soil nutrients and environmental conditions**.
 
-        The model returns:
+        **Outputs:**
         - Best crop
         - Confidence score
         - Top-3 alternative crops
         """
     )
 
-    # Load data
-    df_sample = load_sample_data()
-
-    st.sidebar.markdown("### 📊 Dataset Snapshot")
-    st.sidebar.dataframe(df_sample.head(5))
-
     tab1, tab2 = st.tabs(["🌾 Single Recommendation", "📂 Batch Prediction"])
 
-    
-    # Single prediction tab
-    
+    # -------------------------------
+    # Single Prediction
+    # -------------------------------
 
     with tab1:
-        input_data = build_input_form(df_sample)
+        input_data = build_input_form()
 
-        st.write("### Input Preview")
+        st.write("### 🔍 Input Preview")
         st.json(input_data)
 
         if st.button("🌿 Recommend Crop"):
@@ -114,48 +108,47 @@ def main() -> None:
                 st.success(f"🌾 **Best Crop:** {result['best_crop']}")
                 st.metric(
                     label="Confidence",
-                    value=f"{result['confidence']*100:.2f}%"
+                    value=f"{result['confidence'] * 100:.2f}%",
                 )
 
                 st.subheader("🥈 Top-3 Recommended Crops")
                 df_reco = pd.DataFrame(result["top_recommendations"])
-                df_reco["probability"] = df_reco["probability"] * 100
+                df_reco["probability"] *= 100
 
                 st.dataframe(
                     df_reco.rename(
                         columns={
                             "crop": "Crop",
-                            "probability": "Probability (%)"
+                            "probability": "Probability (%)",
                         }
                     ),
-                    use_container_width=True
+                    use_container_width=True,
                 )
 
             except Exception as exc:
-                st.error("Prediction failed — check inputs or model.")
-                st.write(f"Error: {str(exc)}")
+                st.error("Prediction failed.")
+                st.write(str(exc))
 
-    
-    # Batch prediction tab
-    
+    # -------------------------------
+    # Batch Prediction
+    # -------------------------------
 
     with tab2:
         st.subheader(
             "Upload a CSV for batch crop recommendations "
-            "(must contain the same feature columns)"
+            "(must contain: N, P, K, temperature, humidity, ph, rainfall)"
         )
 
         uploaded = st.file_uploader("Choose a CSV", type=["csv"])
 
         if uploaded is not None:
-            uploaded_df = pd.read_csv(uploaded)
-            st.write("Preview of uploaded data:")
-            st.dataframe(uploaded_df.head())
+            df = pd.read_csv(uploaded)
+            st.write("Preview:")
+            st.dataframe(df.head())
 
             if st.button("Run Batch Recommendation"):
                 try:
-                    result_df = predict_batch(uploaded_df, top_k=3)
-                    st.write("Prediction results (first 10 rows):")
+                    result_df = predict_batch(df, top_k=3)
                     st.dataframe(result_df.head(10))
 
                     csv = result_df.to_csv(index=False).encode("utf-8")
@@ -163,17 +156,17 @@ def main() -> None:
                         "Download predictions",
                         data=csv,
                         file_name="crop_recommendations.csv",
-                        mime="text/csv"
+                        mime="text/csv",
                     )
 
                 except Exception as exc:
-                    st.error("Batch prediction failed — check input file.")
-                    st.write(f"Error: {str(exc)}")
+                    st.error("Batch prediction failed.")
+                    st.write(str(exc))
 
 
-
+# -------------------------------------------------
 # Entry point
-
+# -------------------------------------------------
 
 if __name__ == "__main__":
     main()
