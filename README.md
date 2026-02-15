@@ -3,6 +3,8 @@
 An end-to-end Machine Learning application that recommends the most suitable crop based on soil nutrients and environmental conditions.
 The system is designed as a decision-support tool and provides probabilistic top-K crop recommendations instead of a single hard prediction.
 
+App Link : https://croprecommendationsystem-wjgcye3pzegiew6hugwrpp.streamlit.app/
+
 
 📌 Problem Statement
 
